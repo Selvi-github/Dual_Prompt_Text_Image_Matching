@@ -34,7 +34,7 @@ class TextProcessor:
         }
     
     def _load_spacy_model(self):
-        """Load spaCy model with auto-download"""
+        """Load spaCy model with auto-download (Streamlit Cloud compatible)"""
         model_name = "en_core_web_sm"
         
         try:
@@ -45,15 +45,14 @@ class TextProcessor:
         
         except OSError:
             print(f"❌ spaCy model '{model_name}' not found.")
-            print(f"📥 Downloading spaCy model... This may take a minute.")
+            print(f"📥 Attempting to download spaCy model...")
             
             try:
-                # Download the model
-                subprocess.check_call(
-                    [sys.executable, "-m", "spacy", "download", model_name],
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE
-                )
+                # Import spacy CLI for download
+                import spacy.cli
+                
+                # Download the model using spacy's built-in download
+                spacy.cli.download(model_name)
                 
                 # Load the model after download
                 nlp = spacy.load(model_name)
@@ -62,16 +61,21 @@ class TextProcessor:
             
             except Exception as e:
                 print(f"❌ Failed to download spaCy model: {e}")
-                print(f"Please run manually: python -m spacy download {model_name}")
-                raise
+                print(f"⚠️ Falling back to basic NLP without spaCy...")
+                # Return None to use fallback methods
+                return None
         
         except Exception as e:
             print(f"❌ Unexpected error loading spaCy: {e}")
-            raise
+            return None
     
     def extract_entities(self, text: str) -> Dict[str, List[str]]:
         """Extract named entities from text"""
         try:
+            # If spaCy model is not available, use basic regex extraction
+            if self.nlp is None:
+                return self._basic_entity_extraction(text)
+            
             doc = self.nlp(text)
             entities = {
                 'locations': [],
@@ -93,11 +97,32 @@ class TextProcessor:
             return entities
         except Exception as e:
             print(f"Entity extraction error: {e}")
-            return {'locations': [], 'organizations': [], 'persons': [], 'dates': []}
+            return self._basic_entity_extraction(text)
+    
+    def _basic_entity_extraction(self, text: str) -> Dict[str, List[str]]:
+        """Fallback entity extraction without spaCy"""
+        entities = {
+            'locations': [],
+            'organizations': [],
+            'persons': [],
+            'dates': []
+        }
+        
+        # Basic capitalized word extraction (likely proper nouns)
+        words = text.split()
+        for i, word in enumerate(words):
+            if word and word[0].isupper() and len(word) > 2:
+                entities['locations'].append(word)
+        
+        return entities
     
     def extract_keywords(self, text: str, top_n: int = 10) -> List[str]:
         """Extract important keywords from text"""
         try:
+            # If spaCy not available, use basic extraction
+            if self.nlp is None:
+                return self._basic_keyword_extraction(text, top_n)
+            
             doc = self.nlp(text.lower())
             
             # Remove stopwords and punctuation, keep nouns, verbs, adjectives
@@ -115,7 +140,21 @@ class TextProcessor:
             return keywords[:top_n]
         except Exception as e:
             print(f"Keyword extraction error: {e}")
-            return text.split()[:top_n]
+            return self._basic_keyword_extraction(text, top_n)
+    
+    def _basic_keyword_extraction(self, text: str, top_n: int = 10) -> List[str]:
+        """Fallback keyword extraction without spaCy"""
+        # Basic stopwords
+        stopwords = {'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 
+                    'of', 'with', 'by', 'from', 'as', 'is', 'was', 'are', 'were', 'been',
+                    'be', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 
+                    'could', 'should', 'may', 'might', 'can', 'this', 'that', 'these', 'those'}
+        
+        words = text.lower().split()
+        keywords = [w for w in words if w not in stopwords and len(w) > 2]
+        keywords = list(dict.fromkeys(keywords))  # Remove duplicates
+        
+        return keywords[:top_n]
     
     def classify_event_type(self, text: str) -> str:
         """Classify the type of incident"""
