@@ -7,18 +7,17 @@ import re
 from typing import Dict, List
 from sentence_transformers import SentenceTransformer
 import spacy
+import subprocess
+import sys
 
 class TextProcessor:
     def __init__(self):
         """Initialize text processor with NLP models"""
-        try:
-            self.nlp = spacy.load("en_core_web_sm")
-        except:
-            print("Downloading spaCy model...")
-            import subprocess
-            subprocess.run(["python", "-m", "spacy", "download", "en_core_web_sm"])
-            self.nlp = spacy.load("en_core_web_sm")
+        # Auto-download spaCy model if not available
+        self.nlp = self._load_spacy_model()
         
+        # Load sentence transformer
+        print("Loading sentence transformer model...")
         self.sentence_model = SentenceTransformer('all-MiniLM-L6-v2')
         
         # Event type keywords for classification
@@ -33,6 +32,42 @@ class TextProcessor:
             'rescue': ['rescue', '救援', '救助', '救难'],
             'other': []
         }
+    
+    def _load_spacy_model(self):
+        """Load spaCy model with auto-download"""
+        model_name = "en_core_web_sm"
+        
+        try:
+            print(f"Loading spaCy model '{model_name}'...")
+            nlp = spacy.load(model_name)
+            print(f"✓ spaCy model loaded successfully!")
+            return nlp
+        
+        except OSError:
+            print(f"❌ spaCy model '{model_name}' not found.")
+            print(f"📥 Downloading spaCy model... This may take a minute.")
+            
+            try:
+                # Download the model
+                subprocess.check_call(
+                    [sys.executable, "-m", "spacy", "download", model_name],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE
+                )
+                
+                # Load the model after download
+                nlp = spacy.load(model_name)
+                print(f"✓ spaCy model downloaded and loaded successfully!")
+                return nlp
+            
+            except Exception as e:
+                print(f"❌ Failed to download spaCy model: {e}")
+                print(f"Please run manually: python -m spacy download {model_name}")
+                raise
+        
+        except Exception as e:
+            print(f"❌ Unexpected error loading spaCy: {e}")
+            raise
     
     def extract_entities(self, text: str) -> Dict[str, List[str]]:
         """Extract named entities from text"""
