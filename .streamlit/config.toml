@@ -31,17 +31,17 @@ gatherUsageStats = false
 serverAddress = "0.0.0.0"
 
 # ============================================
-# THEME CONFIGURATION
+# THEME CONFIGURATION - Orange Theme
 # ============================================
 [theme]
-# Primary color (buttons, links)
-primaryColor = "#1f77b4"
+# Primary color (buttons, links) - Orange
+primaryColor = "#ff6600"
 
 # Background color
 backgroundColor = "#ffffff"
 
 # Secondary background color (sidebar, etc)
-secondaryBackgroundColor = "#f0f2f6"
+secondaryBackgroundColor = "#fff5eb"
 
 # Text color
 textColor = "#262730"
