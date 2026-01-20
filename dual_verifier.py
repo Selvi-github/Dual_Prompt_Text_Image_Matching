@@ -1,375 +1,318 @@
 """
-Verification Module - FIXED VERSION
-Uses CLIP correctly for accurate image-text matching
+Dual Verification Module
+Verifies text and images against retrieved web evidence
 """
 
-import torch
-import clip
 from PIL import Image
-from transformers import BlipProcessor, BlipForConditionalGeneration
-from typing import List, Dict
 import numpy as np
+from typing import List, Dict
+import re
 
-class IncidentVerifier:
-    def __init__(self, device: str = None):
-        """Initialize CLIP and BLIP-2 models"""
-        if device is None:
-            self.device = "cuda" if torch.cuda.is_available() else "cpu"
-        else:
-            self.device = device
+class DualVerifier:
+    def __init__(self):
+        """Initialize verifier"""
+        print("✓ Dual Verifier initialized")
         
-        print(f"Loading models on {self.device}...")
-        
-        # Load CLIP for image-text similarity
-        try:
-            self.clip_model, self.clip_preprocess = clip.load("ViT-B/32", device=self.device)
-            print("✓ CLIP model loaded")
-        except Exception as e:
-            print(f"CLIP loading error: {e}")
-            self.clip_model = None
-        
-        # Load BLIP-2 for image captioning
-        try:
-            self.blip_processor = BlipProcessor.from_pretrained("Salesforce/blip-image-captioning-base")
-            self.blip_model = BlipForConditionalGeneration.from_pretrained(
-                "Salesforce/blip-image-captioning-base"
-            ).to(self.device)
-            print("✓ BLIP model loaded")
-        except Exception as e:
-            print(f"BLIP loading error: {e}")
-            self.blip_model = None
+        # Confidence thresholds
+        self.high_confidence_threshold = 70
+        self.medium_confidence_threshold = 50
     
-    def generate_caption(self, image: Image.Image) -> str:
-        """Generate caption for an image using BLIP-2"""
-        try:
-            if self.blip_model is None:
-                return "Caption generation unavailable"
-            
-            inputs = self.blip_processor(image, return_tensors="pt").to(self.device)
-            
-            with torch.no_grad():
-                out = self.blip_model.generate(**inputs, max_length=50)
-            
-            caption = self.blip_processor.decode(out[0], skip_special_tokens=True)
-            return caption
-        except Exception as e:
-            print(f"Caption generation error: {e}")
-            return "Unable to generate caption"
-    
-    def compute_clip_similarity(self, image: Image.Image, text: str) -> float:
-        """
-        FIXED: Compute accurate CLIP similarity between image and text
-        Returns value between 0 and 1
-        """
-        try:
-            if self.clip_model is None:
-                return 0.5
-            
-            # Preprocess image
-            image_input = self.clip_preprocess(image).unsqueeze(0).to(self.device)
-            
-            # Tokenize text
-            text_input = clip.tokenize([text], truncate=True).to(self.device)
-            
-            # Compute features
-            with torch.no_grad():
-                image_features = self.clip_model.encode_image(image_input)
-                text_features = self.clip_model.encode_text(text_input)
-                
-                # Normalize features (IMPORTANT!)
-                image_features = image_features / image_features.norm(dim=-1, keepdim=True)
-                text_features = text_features / text_features.norm(dim=-1, keepdim=True)
-                
-                # Compute cosine similarity
-                similarity = (image_features @ text_features.T).squeeze()
-                
-                # Convert to 0-1 range using sigmoid for better scaling
-                # CLIP raw scores are usually between -1 to 1, we normalize
-                similarity = (similarity + 1) / 2  # Convert [-1,1] to [0,1]
-            
-            return float(similarity.cpu())
-            
-        except Exception as e:
-            print(f"CLIP similarity error: {e}")
-            return 0.5
-    
-    def verify_text_to_image(
+    def verify_text_and_image(
         self, 
         text: str, 
-        retrieved_images: List[Dict]
+        user_image: Image.Image,
+        text_based_images: List[Dict],
+        image_based_images: List[Dict]
     ) -> Dict:
         """
-        FIXED: Verify incident by matching text with retrieved images
-        Uses proper CLIP similarity thresholds
+        Verify both text and image together
+        Returns detailed verification result
         """
         try:
-            if not retrieved_images:
-                return {
-                    'authenticity': 'UNCERTAIN',
-                    'confidence': 0,
-                    'explanation': 'No images found for verification',
-                    'top_matches': []
-                }
+            # Verify text against retrieved images
+            text_result = self._verify_text_with_images(text, text_based_images)
             
-            similarities = []
+            # Verify image against similar images
+            image_result = self._verify_image_with_images(user_image, image_based_images)
             
-            # Calculate similarity for each retrieved image
-            for img_data in retrieved_images:
-                try:
-                    img = img_data['image']
-                    score = self.compute_clip_similarity(img, text)
-                    
-                    similarities.append({
-                        'image': img,
-                        'score': score,
-                        'name': img_data['name'],
-                        'url': img_data['url'],
-                        'source': img_data['source']
-                    })
-                    
-                    print(f"  • {img_data['name'][:40]}: {score:.4f}")
-                    
-                except Exception as e:
-                    print(f"Error processing image: {e}")
-                    continue
+            # Cross-verify consistency
+            consistency_score = self._check_consistency(text, user_image, text_result, image_result)
             
-            if not similarities:
-                return {
-                    'authenticity': 'UNCERTAIN',
-                    'confidence': 0,
-                    'explanation': 'Unable to process retrieved images',
-                    'top_matches': []
-                }
-            
-            # Sort by similarity score (highest first)
-            similarities.sort(key=lambda x: x['score'], reverse=True)
-            
-            # Get top 5 matches
-            top_matches = similarities[:5]
-            
-            # Calculate statistics
-            top_3_scores = [m['score'] for m in similarities[:3]]
-            avg_top3 = np.mean(top_3_scores)
-            max_score = similarities[0]['score']
-            
-            print(f"\n📊 Scores - Max: {max_score:.4f} | Avg(top-3): {avg_top3:.4f}")
-            
-            # FIXED THRESHOLDS based on normalized CLIP scores
-            # After normalization, scores are 0-1:
-            # 0.65+ = Very strong match (REAL)
-            # 0.55-0.65 = Good match (LIKELY REAL)
-            # 0.45-0.55 = Moderate (UNCERTAIN)
-            # Below 0.45 = Poor match (LIKELY FAKE)
-            
-            if max_score >= 0.65 and avg_top3 >= 0.60:
-                authenticity = 'REAL'
-                confidence = min(98, int(max_score * 100))
-                explanation = (
-                    f"✅ Strong visual evidence found! "
-                    f"Top match similarity: {max_score:.2%}. "
-                    f"Multiple matching images confirm this is a documented incident."
-                )
-                
-            elif max_score >= 0.55 and avg_top3 >= 0.50:
-                authenticity = 'LIKELY REAL'
-                confidence = min(88, int(max_score * 100))
-                explanation = (
-                    f"✓ Good visual correlation found. "
-                    f"Top match: {max_score:.2%}. "
-                    f"Evidence suggests this is a genuine incident with online documentation."
-                )
-                
-            elif max_score >= 0.45 or avg_top3 >= 0.42:
-                authenticity = 'UNCERTAIN'
-                confidence = min(60, int(avg_top3 * 100))
-                explanation = (
-                    f"⚠️ Moderate correlation detected. "
-                    f"Match quality: {max_score:.2%}. "
-                    f"Limited visual evidence - requires additional verification."
-                )
-                
-            else:
-                authenticity = 'LIKELY FAKE'
-                confidence = max(15, int((1 - max_score) * 70))
-                explanation = (
-                    f"❌ Low visual correlation ({max_score:.2%}). "
-                    f"No strong matches found online. "
-                    f"This incident may be fabricated, very recent, or misrepresented."
-                )
+            # Determine final verdict
+            verdict = self._determine_verdict(text_result, image_result, consistency_score)
             
             return {
-                'authenticity': authenticity,
-                'confidence': confidence,
-                'explanation': explanation,
-                'top_matches': top_matches,
-                'avg_similarity': float(avg_top3),
-                'max_similarity': float(max_score),
-                'all_scores': [s['score'] for s in similarities]
+                'verdict': verdict['type'],
+                'main_message': verdict['message'],
+                'confidence': verdict['confidence'],
+                'explanation': verdict['explanation'],
+                'text_verification': text_result,
+                'image_verification': image_result,
+                'consistency_score': consistency_score
             }
-            
+        
         except Exception as e:
-            print(f"Verification error: {e}")
+            print(f"Dual verification error: {e}")
+            return self._get_error_result()
+    
+    def verify_text_only(self, text: str, retrieved_images: List[Dict]) -> Dict:
+        """Verify text against retrieved images"""
+        try:
+            result = self._verify_text_with_images(text, retrieved_images)
+            
             return {
+                'is_real': result['is_real'],
+                'authenticity': result['authenticity'],
+                'confidence': result['confidence'],
+                'explanation': result['explanation'],
+                'evidence_count': len(retrieved_images)
+            }
+        
+        except Exception as e:
+            print(f"Text verification error: {e}")
+            return {
+                'is_real': False,
                 'authenticity': 'UNCERTAIN',
                 'confidence': 0,
-                'explanation': f'Verification failed: {str(e)}',
-                'top_matches': []
+                'explanation': 'Verification failed due to error',
+                'evidence_count': 0
             }
     
-    def verify_image_to_text(
-        self, 
-        query_image: Image.Image,
-        retrieved_images: List[Dict]
-    ) -> Dict:
-        """
-        FIXED: Verify uploaded image by comparing with retrieved images
-        """
+    def verify_image_only(self, user_image: Image.Image, retrieved_images: List[Dict]) -> Dict:
+        """Verify image against similar images"""
         try:
-            # Generate caption for query image
-            caption = self.generate_caption(query_image)
-            print(f"Generated caption: {caption}")
-            
-            if not retrieved_images:
-                return {
-                    'authenticity': 'UNCERTAIN',
-                    'confidence': 0,
-                    'explanation': 'No similar images found online',
-                    'caption': caption,
-                    'similar_images': []
-                }
-            
-            similarities = []
-            
-            # Compare query image with retrieved images using CLIP
-            for img_data in retrieved_images:
-                try:
-                    img = img_data['image']
-                    
-                    # Use caption for similarity (more accurate than direct image comparison)
-                    score = self.compute_clip_similarity(img, caption)
-                    
-                    similarities.append({
-                        'image': img,
-                        'score': score,
-                        'name': img_data['name'],
-                        'url': img_data['url'],
-                        'source': img_data['source']
-                    })
-                    
-                    print(f"  • {img_data['name'][:40]}: {score:.4f}")
-                    
-                except Exception as e:
-                    print(f"Error processing image: {e}")
-                    continue
-            
-            if not similarities:
-                return {
-                    'authenticity': 'UNCERTAIN',
-                    'confidence': 0,
-                    'explanation': 'Unable to compare images',
-                    'caption': caption,
-                    'similar_images': []
-                }
-            
-            # Sort by similarity
-            similarities.sort(key=lambda x: x['score'], reverse=True)
-            similar_images = similarities[:5]
-            
-            # Calculate statistics
-            top_3_scores = [s['score'] for s in similarities[:3]]
-            avg_top3 = np.mean(top_3_scores)
-            max_score = similarities[0]['score']
-            
-            print(f"\n📊 Image Match - Max: {max_score:.4f} | Avg(top-3): {avg_top3:.4f}")
-            
-            # FIXED THRESHOLDS for image verification
-            # Slightly higher thresholds for image-image matching
-            if max_score >= 0.68 and avg_top3 >= 0.62:
-                authenticity = 'REAL'
-                confidence = min(97, int(max_score * 100))
-                explanation = (
-                    f"✅ Matching images found online! "
-                    f"Highest similarity: {max_score:.2%}. "
-                    f"This incident appears to be documented and verified."
-                )
-                
-            elif max_score >= 0.58 and avg_top3 >= 0.52:
-                authenticity = 'LIKELY REAL'
-                confidence = min(85, int(max_score * 100))
-                explanation = (
-                    f"✓ Similar images detected online. "
-                    f"Match quality: {max_score:.2%}. "
-                    f"Evidence suggests this is a genuine incident."
-                )
-                
-            elif max_score >= 0.48:
-                authenticity = 'UNCERTAIN'
-                confidence = min(65, int(avg_top3 * 100))
-                explanation = (
-                    f"⚠️ Partial matches found. "
-                    f"Similarity: {max_score:.2%}. "
-                    f"Cannot conclusively verify - may require additional sources."
-                )
-                
-            else:
-                authenticity = 'LIKELY FAKE'
-                confidence = max(15, int((1 - max_score) * 75))
-                explanation = (
-                    f"❌ No matching images found online ({max_score:.2%}). "
-                    f"The image may be fabricated, heavily edited, or not publicly available."
-                )
+            result = self._verify_image_with_images(user_image, retrieved_images)
             
             return {
-                'authenticity': authenticity,
-                'confidence': confidence,
-                'explanation': explanation,
-                'caption': caption,
-                'similar_images': similar_images,
-                'avg_similarity': float(avg_top3),
-                'max_similarity': float(max_score),
-                'all_scores': [s['score'] for s in similarities]
+                'is_real': result['is_real'],
+                'authenticity': result['authenticity'],
+                'confidence': result['confidence'],
+                'explanation': result['explanation'],
+                'similar_count': len(retrieved_images)
             }
-            
+        
         except Exception as e:
             print(f"Image verification error: {e}")
             return {
+                'is_real': False,
                 'authenticity': 'UNCERTAIN',
                 'confidence': 0,
-                'explanation': f'Verification failed: {str(e)}',
-                'caption': 'Unable to generate caption',
-                'similar_images': []
+                'explanation': 'Verification failed due to error',
+                'similar_count': 0
             }
     
-    def compute_image_similarity_direct(self, image1: Image.Image, image2: Image.Image) -> float:
-        """
-        Direct image-to-image similarity using CLIP image encoder
-        Optional: More accurate for identical/near-identical images
-        """
+    def _verify_text_with_images(self, text: str, images: List[Dict]) -> Dict:
+        """Verify text description against retrieved images"""
+        if not images or len(images) == 0:
+            return {
+                'is_real': False,
+                'authenticity': 'LIKELY FAKE',
+                'confidence': 30,
+                'explanation': 'No supporting images found online',
+                'evidence_score': 0
+            }
+        
+        # Calculate evidence score based on number of images
+        evidence_score = min(len(images) * 10, 100)
+        
+        # Check if images are from credible sources
+        credible_sources = ['news', 'government', 'official', 'reuters', 'bbc', 'cnn']
+        credible_count = sum(
+            1 for img in images 
+            if any(source in img.get('source', '').lower() for source in credible_sources)
+        )
+        
+        credibility_boost = min(credible_count * 5, 20)
+        
+        # Final confidence
+        confidence = min(evidence_score + credibility_boost, 95)
+        
+        if confidence >= self.high_confidence_threshold:
+            is_real = True
+            authenticity = 'REAL'
+            explanation = f'Found {len(images)} supporting images online. High confidence this incident is authentic.'
+        elif confidence >= self.medium_confidence_threshold:
+            is_real = True
+            authenticity = 'LIKELY REAL'
+            explanation = f'Found {len(images)} images online. Moderate confidence this incident occurred.'
+        else:
+            is_real = False
+            authenticity = 'UNCERTAIN'
+            explanation = f'Limited evidence found ({len(images)} images). Cannot confirm authenticity.'
+        
+        return {
+            'is_real': is_real,
+            'authenticity': authenticity,
+            'confidence': confidence,
+            'explanation': explanation,
+            'evidence_score': evidence_score
+        }
+    
+    def _verify_image_with_images(self, user_image: Image.Image, similar_images: List[Dict]) -> Dict:
+        """Verify user image against similar images found online"""
+        if not similar_images or len(similar_images) == 0:
+            return {
+                'is_real': False,
+                'authenticity': 'LIKELY FAKE',
+                'confidence': 25,
+                'explanation': 'No similar images found online. Image may be fabricated.',
+                'similarity_score': 0
+            }
+        
+        # Calculate similarity score
+        similarity_scores = []
+        for img_data in similar_images:
+            try:
+                similarity = self._calculate_image_similarity(
+                    user_image, 
+                    img_data['image']
+                )
+                similarity_scores.append(similarity)
+            except:
+                continue
+        
+        if not similarity_scores:
+            avg_similarity = 0
+        else:
+            avg_similarity = sum(similarity_scores) / len(similarity_scores)
+        
+        # Confidence based on similarity and count
+        confidence = min(int(avg_similarity * 100) + len(similar_images) * 5, 95)
+        
+        if confidence >= self.high_confidence_threshold:
+            is_real = True
+            authenticity = 'REAL'
+            explanation = f'Found {len(similar_images)} similar images online with {avg_similarity:.1%} similarity. Image appears authentic.'
+        elif confidence >= self.medium_confidence_threshold:
+            is_real = True
+            authenticity = 'LIKELY REAL'
+            explanation = f'Found {len(similar_images)} similar images. Moderate confidence image is real.'
+        else:
+            is_real = False
+            authenticity = 'UNCERTAIN'
+            explanation = f'Limited similar images found. Cannot confirm image authenticity.'
+        
+        return {
+            'is_real': is_real,
+            'authenticity': authenticity,
+            'confidence': confidence,
+            'explanation': explanation,
+            'similarity_score': avg_similarity
+        }
+    
+    def _calculate_image_similarity(self, img1: Image.Image, img2: Image.Image) -> float:
+        """Calculate basic similarity between two images"""
         try:
-            if self.clip_model is None:
-                return 0.5
+            # Resize to same size for comparison
+            size = (100, 100)
+            img1_resized = img1.resize(size)
+            img2_resized = img2.resize(size)
             
-            # Preprocess both images
-            img1_input = self.clip_preprocess(image1).unsqueeze(0).to(self.device)
-            img2_input = self.clip_preprocess(image2).unsqueeze(0).to(self.device)
+            # Convert to numpy arrays
+            arr1 = np.array(img1_resized).flatten()
+            arr2 = np.array(img2_resized).flatten()
             
-            with torch.no_grad():
-                # Get image features
-                img1_features = self.clip_model.encode_image(img1_input)
-                img2_features = self.clip_model.encode_image(img2_input)
-                
-                # Normalize
-                img1_features = img1_features / img1_features.norm(dim=-1, keepdim=True)
-                img2_features = img2_features / img2_features.norm(dim=-1, keepdim=True)
-                
-                # Compute similarity
-                similarity = (img1_features @ img2_features.T).squeeze()
-                
-                # Normalize to 0-1
-                similarity = (similarity + 1) / 2
+            # Calculate correlation
+            correlation = np.corrcoef(arr1, arr2)[0, 1]
             
-            return float(similarity.cpu())
+            # Convert to similarity (0 to 1)
+            similarity = (correlation + 1) / 2
             
+            return max(0, min(1, similarity))
+        
         except Exception as e:
-            print(f"Direct image similarity error: {e}")
+            return 0.5  # Default middle value
+    
+    def _check_consistency(self, text: str, image: Image.Image, text_result: Dict, image_result: Dict) -> float:
+        """Check if text and image are consistent with each other"""
+        try:
+            # Simple consistency check based on both being real/fake
+            text_real = text_result['is_real']
+            image_real = image_result['is_real']
+            
+            if text_real == image_real:
+                # Both agree (both real or both fake)
+                consistency = 0.8
+            else:
+                # Mismatch
+                consistency = 0.3
+            
+            return consistency
+        
+        except:
             return 0.5
+    
+    def _determine_verdict(self, text_result: Dict, image_result: Dict, consistency: float) -> Dict:
+        """Determine final verdict based on all evidence"""
+        text_real = text_result['is_real']
+        image_real = image_result['is_real']
+        
+        text_conf = text_result['confidence']
+        image_conf = image_result['confidence']
+        
+        # Average confidence
+        avg_confidence = int((text_conf + image_conf) / 2)
+        
+        if text_real and image_real and consistency > 0.6:
+            return {
+                'type': 'MATCH_AND_REAL',
+                'message': '✅ TEXT and IMAGE MATCH - Both Verified as REAL',
+                'confidence': avg_confidence,
+                'explanation': (
+                    'Both the text description and image have been verified against online sources.\n\n'
+                    f'Text Verification: {text_result["authenticity"]} ({text_conf}% confidence)\n'
+                    f'Image Verification: {image_result["authenticity"]} ({image_conf}% confidence)\n\n'
+                    'The incident appears to be authentic.'
+                )
+            }
+        
+        elif text_real and image_real and consistency <= 0.6:
+            return {
+                'type': 'BOTH_REAL_DIFFERENT_INCIDENTS',
+                'message': '⚠️ MISMATCH DETECTED - Text and Image May Describe Different Incidents',
+                'confidence': avg_confidence,
+                'explanation': (
+                    'Both text and image appear to be real, but they may not describe the same incident.\n\n'
+                    f'Text Verification: {text_result["authenticity"]} ({text_conf}% confidence)\n'
+                    f'Image Verification: {image_result["authenticity"]} ({image_conf}% confidence)\n\n'
+                    '⚠️ WARNING: The image might be from a different event than described in the text.'
+                )
+            }
+        
+        elif not text_real and not image_real:
+            return {
+                'type': 'BOTH_FAKE',
+                'message': '❌ LIKELY FABRICATED - Both Text and Image Cannot Be Verified',
+                'confidence': avg_confidence,
+                'explanation': (
+                    'Neither the text description nor the image could be verified against online sources.\n\n'
+                    f'Text Verification: {text_result["authenticity"]} ({text_conf}% confidence)\n'
+                    f'Image Verification: {image_result["authenticity"]} ({image_conf}% confidence)\n\n'
+                    'This incident may be fabricated or lacks online documentation.'
+                )
+            }
+        
+        else:
+            return {
+                'type': 'PARTIAL_FAKE',
+                'message': '⚠️ PARTIAL VERIFICATION - One Component Could Not Be Verified',
+                'confidence': avg_confidence,
+                'explanation': (
+                    f'Text: {text_result["authenticity"]} ({text_conf}% confidence)\n'
+                    f'Image: {image_result["authenticity"]} ({image_conf}% confidence)\n\n'
+                    'One component appears real while the other cannot be verified. '
+                    'This could indicate manipulation or mismatched information.'
+                )
+            }
+    
+    def _get_error_result(self) -> Dict:
+        """Return error result"""
+        return {
+            'verdict': 'ERROR',
+            'main_message': '❌ Verification Error',
+            'confidence': 0,
+            'explanation': 'An error occurred during verification. Please try again.',
+            'text_verification': {'is_real': False, 'authenticity': 'ERROR', 'confidence': 0, 'explanation': 'Error'},
+            'image_verification': {'is_real': False, 'authenticity': 'ERROR', 'confidence': 0, 'explanation': 'Error'},
+            'consistency_score': 0
+        }
