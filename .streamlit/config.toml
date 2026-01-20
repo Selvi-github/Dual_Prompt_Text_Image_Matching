@@ -1,8 +1,80 @@
+# Streamlit Configuration File
+# Place this file in: .streamlit/config.toml
+
+# ============================================
+# SERVER CONFIGURATION
+# ============================================
 [server]
+# Run in headless mode (no browser auto-open)
 headless = true
+
+# Port number
 port = 8501
+
+# Enable CORS (Cross-Origin Resource Sharing)
 enableCORS = false
+
+# Enable XSRF protection
 enableXsrfProtection = false
 
+# File watcher type
+fileWatcherType = "auto"
+
+# ============================================
+# BROWSER CONFIGURATION
+# ============================================
 [browser]
+# Don't gather usage stats
 gatherUsageStats = false
+
+# Server address (for cloud deployment)
+serverAddress = "0.0.0.0"
+
+# ============================================
+# THEME CONFIGURATION
+# ============================================
+[theme]
+# Primary color (buttons, links)
+primaryColor = "#1f77b4"
+
+# Background color
+backgroundColor = "#ffffff"
+
+# Secondary background color (sidebar, etc)
+secondaryBackgroundColor = "#f0f2f6"
+
+# Text color
+textColor = "#262730"
+
+# Font family
+font = "sans serif"
+
+# ============================================
+# CLIENT CONFIGURATION
+# ============================================
+[client]
+# Show error details
+showErrorDetails = true
+
+# Toolbar mode ("auto", "developer", "viewer", "minimal")
+toolbarMode = "auto"
+
+# ============================================
+# RUNNER CONFIGURATION
+# ============================================
+[runner]
+# Fast rerun on file changes
+fastReruns = true
+
+# Maximum message size
+maxMessageSize = 200
+
+# ============================================
+# LOGGER CONFIGURATION
+# ============================================
+[logger]
+# Log level ("error", "warning", "info", "debug")
+level = "info"
+
+# Enable message format
+messageFormat = "%(asctime)s %(levelname)s: %(message)s"
