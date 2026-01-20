@@ -23,15 +23,16 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Custom CSS
+# Custom CSS with Orange Theme
 st.markdown("""
     <style>
     .main-header {
         font-size: 2.5rem;
-        color: #1f77b4;
+        color: #ff6600;
         text-align: center;
         font-weight: bold;
         margin-bottom: 1rem;
+        text-shadow: 2px 2px 4px rgba(0,0,0,0.1);
     }
     .sub-header {
         font-size: 1.2rem;
@@ -44,6 +45,7 @@ st.markdown("""
         border-radius: 10px;
         border: 2px solid #ddd;
         margin: 1rem 0;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
     }
     .real {
         background-color: #d4edda;
@@ -55,11 +57,26 @@ st.markdown("""
     }
     .mismatch {
         background-color: #fff3cd;
-        border-color: #ffc107;
+        border-color: #ff8c00;
     }
     .uncertain {
-        background-color: #e7f3ff;
-        border-color: #0066cc;
+        background-color: #ffe5cc;
+        border-color: #ff6600;
+    }
+    .image-card {
+        border: 1px solid #ff6600;
+        border-radius: 8px;
+        padding: 8px;
+        margin: 5px;
+        background-color: #fff;
+    }
+    .similarity-badge {
+        background-color: #ff6600;
+        color: white;
+        padding: 4px 8px;
+        border-radius: 12px;
+        font-size: 0.85rem;
+        font-weight: bold;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -195,10 +212,13 @@ def main():
                 else:
                     st.warning("⚠️ Could not retrieve images for text")
                 
-                # Retrieve images based on image (reverse search)
-                with st.spinner("Performing reverse image search..."):
-                    caption = f"{text_info['event_type']} incident"
-                    image_based_images = retriever.retrieve_images(caption, max_images)
+                # Retrieve images based on image (AI-enhanced reverse search)
+                with st.spinner("🤖 AI-powered reverse image search..."):
+                    image_based_images = retriever.retrieve_similar_images(
+                        user_image,
+                        text_context=text_input,
+                        max_images=max_images
+                    )
                 
                 if image_based_images:
                     st.success(f"✓ Retrieved {len(image_based_images)} images for reverse search")
@@ -258,17 +278,21 @@ def main():
             
             # CASE 3: Only Image provided
             elif not has_text and has_image:
-                st.info("🔄 Mode: IMAGE Only Verification")
+                st.info("🔄 Mode: IMAGE Only Verification (AI-Enhanced)")
                 
-                # Generate caption
-                with st.spinner("Analyzing image..."):
-                    caption = "incident scene"
-                st.success(f"✓ Image analyzed")
-                
-                # Retrieve similar images
-                with st.spinner("Searching for similar images..."):
+                # AI-powered image analysis
+                with st.spinner("🤖 Analyzing image with AI..."):
                     retriever = ImageRetriever()
-                    retrieved_images = retriever.retrieve_images(caption, max_images)
+                    image_description = retriever.image_to_text(user_image)
+                
+                st.success(f"✓ Image analyzed: {image_description}")
+                
+                # Retrieve similar images using AI
+                with st.spinner("🔍 Finding similar images using AI..."):
+                    retrieved_images = retriever.retrieve_similar_images(
+                        user_image,
+                        max_images=max_images
+                    )
                 
                 if retrieved_images:
                     st.success(f"✓ Found {len(retrieved_images)} similar images")
@@ -349,22 +373,45 @@ def display_dual_verification_results(result, text_images, image_images, user_im
             cols = st.columns(4)
             for i, img_data in enumerate(text_images[:8]):
                 with cols[i % 4]:
+                    st.markdown('<div class="image-card">', unsafe_allow_html=True)
                     st.image(img_data['image'], use_column_width=True)
-                    st.caption(f"**{img_data['source'][:30]}**")
-                    st.caption(f"{img_data['name'][:40]}...")
+                    
+                    # Show original incident details
+                    if 'original_description' in img_data:
+                        st.caption(f"📰 **{img_data['original_description'][:60]}...**")
+                    else:
+                        st.caption(f"**{img_data['source'][:30]}**")
+                    
+                    st.caption(f"🔗 {img_data['name'][:50]}...")
+                    st.markdown('</div>', unsafe_allow_html=True)
         
         # Show image-based images if image is real
         if image_is_real and image_images:
             st.markdown("---")
-            st.subheader("🖼️ Similar Images Found Online (Reverse Search)")
-            st.caption("These similar images were found matching your uploaded image")
+            st.subheader("🖼️ Similar Images Found Online (AI-Enhanced Reverse Search)")
+            st.caption("These highly similar images were found using AI-powered matching")
             
             cols = st.columns(4)
             for i, img_data in enumerate(image_images[:8]):
                 with cols[i % 4]:
+                    st.markdown('<div class="image-card">', unsafe_allow_html=True)
                     st.image(img_data['image'], use_column_width=True)
-                    st.caption(f"**{img_data['source'][:30]}**")
-                    st.caption(f"{img_data['name'][:40]}...")
+                    
+                    # Show similarity score if available
+                    if 'match_percentage' in img_data:
+                        st.markdown(
+                            f'<span class="similarity-badge">Match: {img_data["match_percentage"]}%</span>', 
+                            unsafe_allow_html=True
+                        )
+                    
+                    # Show original incident details
+                    if 'original_description' in img_data:
+                        st.caption(f"📰 **{img_data['original_description'][:60]}...**")
+                    else:
+                        st.caption(f"**{img_data['source'][:30]}**")
+                    
+                    st.caption(f"🔗 {img_data['name'][:50]}...")
+                    st.markdown('</div>', unsafe_allow_html=True)
         
         st.success("✅ Above images from news sources verify the incident authenticity")
     else:
@@ -414,13 +461,32 @@ def display_image_only_results(result, retrieved_images, user_image):
     )
     
     if result['is_real'] and retrieved_images:
-        st.subheader("🔍 Similar Images Found Online")
+        st.subheader("🔍 Similar Images Found Online (AI-Enhanced)")
+        
+        # Show similarity scores if available
+        has_scores = any('match_percentage' in img for img in retrieved_images)
+        
         cols = st.columns(4)
         for i, img_data in enumerate(retrieved_images[:8]):
             with cols[i % 4]:
+                st.markdown('<div class="image-card">', unsafe_allow_html=True)
                 st.image(img_data['image'], use_column_width=True)
-                st.caption(f"**{img_data['source'][:30]}**")
-                st.caption(f"{img_data['name'][:40]}...")
+                
+                # Show similarity score
+                if 'match_percentage' in img_data:
+                    st.markdown(
+                        f'<span class="similarity-badge">Match: {img_data["match_percentage"]}%</span>',
+                        unsafe_allow_html=True
+                    )
+                
+                # Show original incident information
+                if 'original_description' in img_data:
+                    st.caption(f"📰 **{img_data['original_description'][:60]}...**")
+                else:
+                    st.caption(f"**{img_data['source'][:30]}**")
+                
+                st.caption(f"🔗 {img_data['name'][:50]}...")
+                st.markdown('</div>', unsafe_allow_html=True)
 
 
 if __name__ == "__main__":
