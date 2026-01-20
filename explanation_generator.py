@@ -1,178 +1,177 @@
 """
 Explanation Generator Module
-Generates comprehensive incident descriptions and reports
+Generates human-readable explanations for verification results
 """
 
-from typing import Dict
-from datetime import datetime
+from typing import Dict, List
 
 class ExplanationGenerator:
     def __init__(self):
         """Initialize explanation generator"""
+        print("✓ Explanation Generator initialized")
+        
+        # Templates for different scenarios
         self.templates = {
-            'fire': "A fire incident occurred{location}, involving {description}. The event was characterized by flames, smoke, and potential property damage.",
-            'flood': "A flooding event was reported{location}. {description} Water levels rose significantly, causing potential infrastructure damage.",
-            'accident': "A vehicular or transportation accident occurred{location}. {description} Emergency response teams were likely deployed.",
-            'protest': "A public demonstration or protest took place{location}. {description} Citizens gathered to express their views.",
-            'explosion': "An explosion was reported{location}. {description} The blast may have caused structural damage and injuries.",
-            'natural_disaster': "A natural disaster struck{location}. {description} The event caused widespread impact on the affected area.",
-            'violence': "A violent incident occurred{location}. {description} Law enforcement and emergency services responded.",
-            'rescue': "A rescue operation was conducted{location}. {description} Emergency personnel worked to save lives.",
-            'other': "An incident was reported{location}. {description} Further details are being investigated."
+            'high_confidence_real': [
+                'Strong evidence suggests this incident is authentic.',
+                'Multiple credible sources confirm this event.',
+                'Verification indicates this is a real incident.'
+            ],
+            'medium_confidence_real': [
+                'Available evidence suggests this incident likely occurred.',
+                'Moderate confidence that this event is authentic.',
+                'Some supporting evidence found for this incident.'
+            ],
+            'low_confidence': [
+                'Limited evidence available for verification.',
+                'Unable to confidently verify this incident.',
+                'Insufficient information to confirm authenticity.'
+            ],
+            'fake': [
+                'No credible evidence found to support this claim.',
+                'This incident could not be verified from reliable sources.',
+                'Available evidence suggests this may be fabricated.'
+            ],
+            'mismatch': [
+                'Text and image appear to describe different events.',
+                'Inconsistency detected between text and visual evidence.',
+                'The image may not correspond to the described incident.'
+            ]
         }
     
-    def generate_incident_report(
-        self, 
-        text_info: Dict, 
-        verification_result: Dict,
-        mode: str = 'text_to_image'
-    ) -> str:
-        """Generate comprehensive incident report"""
+    def generate_explanation(self, verification_result: Dict) -> str:
+        """
+        Generate detailed explanation based on verification result
+        """
         try:
-            # Header
-            report = "=" * 60 + "\n"
-            report += "INCIDENT VERIFICATION REPORT\n"
-            report += "=" * 60 + "\n\n"
+            confidence = verification_result.get('confidence', 0)
+            verdict = verification_result.get('verdict', 'UNCERTAIN')
             
-            # Timestamp
-            report += f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
-            report += f"Verification Mode: {mode.upper().replace('_', ' ')}\n\n"
+            # Base explanation
+            explanation_parts = []
             
-            # Authenticity Status
-            report += "--- AUTHENTICITY ASSESSMENT ---\n"
-            report += f"Status: {verification_result['authenticity']}\n"
-            report += f"Confidence Score: {verification_result['confidence']}%\n"
-            report += f"Explanation: {verification_result['explanation']}\n\n"
+            # Add confidence assessment
+            if confidence >= 80:
+                explanation_parts.append("🟢 High Confidence Verification")
+            elif confidence >= 60:
+                explanation_parts.append("🟡 Medium Confidence Verification")
+            else:
+                explanation_parts.append("🔴 Low Confidence Verification")
             
-            # Incident Details
-            if mode == 'text_to_image':
-                report += "--- INCIDENT DESCRIPTION ---\n"
-                report += f"Original Text: {text_info.get('original_text', 'N/A')}\n\n"
-                
-                report += "Event Classification:\n"
-                report += f"  • Type: {text_info.get('event_type', 'Unknown').upper()}\n"
-                report += f"  • Location: {text_info.get('location', 'Unknown')}\n\n"
-                
-                report += "Extracted Information:\n"
-                report += f"  • Keywords: {', '.join(text_info.get('keywords', [])[:8])}\n"
-                
-                entities = text_info.get('entities', {})
-                if entities.get('locations'):
-                    report += f"  • Locations: {', '.join(entities['locations'][:3])}\n"
-                if entities.get('organizations'):
-                    report += f"  • Organizations: {', '.join(entities['organizations'][:3])}\n"
-                if entities.get('dates'):
-                    report += f"  • Dates: {', '.join(entities['dates'][:3])}\n"
-                
-                report += "\n"
+            # Add verdict explanation
+            if verdict == 'MATCH_AND_REAL':
+                explanation_parts.append(
+                    "Both the text description and image have been verified as authentic. "
+                    "They appear to describe the same incident, and supporting evidence was found online."
+                )
             
-            elif mode == 'image_to_text':
-                report += "--- IMAGE ANALYSIS ---\n"
-                report += f"Generated Caption: {verification_result.get('caption', 'N/A')}\n\n"
+            elif verdict == 'BOTH_REAL_DIFFERENT_INCIDENTS':
+                explanation_parts.append(
+                    "⚠️ Warning: Both text and image appear authentic, but they may describe different incidents. "
+                    "The image could be from a similar but separate event."
+                )
             
-            # Evidence
-            report += "--- SUPPORTING EVIDENCE ---\n"
+            elif verdict == 'BOTH_FAKE':
+                explanation_parts.append(
+                    "Neither the text nor image could be verified from credible sources. "
+                    "This incident may be fabricated or poorly documented."
+                )
             
-            if mode == 'text_to_image':
-                top_matches = verification_result.get('top_matches', [])
-                if top_matches:
-                    report += f"Found {len(top_matches)} matching images:\n"
-                    for i, match in enumerate(top_matches, 1):
-                        report += f"  {i}. {match['name'][:60]}\n"
-                        report += f"     Similarity: {match['score']:.4f} | Source: {match['source']}\n"
-                else:
-                    report += "No matching images found.\n"
+            elif verdict == 'PARTIAL_FAKE':
+                explanation_parts.append(
+                    "Only one component (text or image) could be verified. "
+                    "This suggests possible manipulation or mismatched information."
+                )
             
-            elif mode == 'image_to_text':
-                similar_images = verification_result.get('similar_images', [])
-                if similar_images:
-                    report += f"Found {len(similar_images)} similar images online:\n"
-                    for i, img in enumerate(similar_images, 1):
-                        report += f"  {i}. {img['name'][:60]}\n"
-                        report += f"     Similarity: {img['score']:.4f} | Source: {img['source']}\n"
-                else:
-                    report += "No similar images found online.\n"
+            else:
+                explanation_parts.append(
+                    "Verification results are uncertain. More information may be needed."
+                )
             
-            report += "\n"
+            # Add evidence summary
+            if 'text_verification' in verification_result:
+                text_auth = verification_result['text_verification'].get('authenticity', 'UNKNOWN')
+                explanation_parts.append(f"\n📝 Text Status: {text_auth}")
             
-            # Detailed Explanation
-            report += "--- DETAILED ANALYSIS ---\n"
+            if 'image_verification' in verification_result:
+                img_auth = verification_result['image_verification'].get('authenticity', 'UNKNOWN')
+                explanation_parts.append(f"🖼️ Image Status: {img_auth}")
             
-            if verification_result['authenticity'] == 'REAL':
-                report += "The verification process found strong evidence supporting the authenticity "
-                report += "of this incident. Multiple visual matches were identified, and the described "
-                report += "events align with available online imagery.\n\n"
-                
-                report += "RECOMMENDATION: The incident appears to be genuine based on available evidence. "
-                report += "However, always verify through multiple sources for critical decisions.\n"
+            return "\n".join(explanation_parts)
+        
+        except Exception as e:
+            print(f"Explanation generation error: {e}")
+            return "Unable to generate detailed explanation."
+    
+    def get_recommendations(self, verification_result: Dict) -> List[str]:
+        """Get recommendations based on verification result"""
+        recommendations = []
+        
+        confidence = verification_result.get('confidence', 0)
+        verdict = verification_result.get('verdict', 'UNCERTAIN')
+        
+        if confidence < 50:
+            recommendations.append("🔍 Consider seeking additional sources for verification")
+            recommendations.append("📰 Check reputable news outlets for coverage of this incident")
+        
+        if verdict == 'BOTH_REAL_DIFFERENT_INCIDENTS':
+            recommendations.append("⚠️ Verify that the image actually corresponds to the described event")
+            recommendations.append("🕐 Check the dates and locations of both the text and image")
+        
+        if verdict in ['BOTH_FAKE', 'PARTIAL_FAKE']:
+            recommendations.append("❌ Exercise caution before sharing this information")
+            recommendations.append("✋ Wait for confirmation from credible sources")
+        
+        return recommendations
+    
+    def format_detailed_report(self, verification_result: Dict) -> str:
+        """Generate a detailed verification report"""
+        try:
+            report_lines = []
             
-            elif verification_result['authenticity'] == 'UNCERTAIN':
-                report += "The verification process found partial evidence but cannot conclusively "
-                report += "determine authenticity. Limited visual matches or conflicting information "
-                report += "suggests caution.\n\n"
-                
-                report += "RECOMMENDATION: Further investigation required. Cross-reference with official "
-                report += "news sources, government reports, or eyewitness accounts.\n"
+            report_lines.append("=" * 60)
+            report_lines.append("INCIDENT VERIFICATION REPORT")
+            report_lines.append("=" * 60)
             
-            else:  # FAKE
-                report += "The verification process found minimal or no supporting evidence. The described "
-                report += "incident shows low correlation with available online imagery, suggesting potential "
-                report += "fabrication or misrepresentation.\n\n"
-                
-                report += "RECOMMENDATION: Treat with high skepticism. The incident may be false, manipulated, "
-                report += "or taken out of context. Do not share without proper verification.\n"
+            # Main verdict
+            verdict = verification_result.get('main_message', 'Unknown')
+            confidence = verification_result.get('confidence', 0)
             
-            report += "\n" + "=" * 60 + "\n"
+            report_lines.append(f"\n📊 VERDICT: {verdict}")
+            report_lines.append(f"🎯 CONFIDENCE: {confidence}%")
             
-            return report
+            # Detailed analysis
+            report_lines.append("\n" + "-" * 60)
+            report_lines.append("DETAILED ANALYSIS")
+            report_lines.append("-" * 60)
+            
+            if 'text_verification' in verification_result:
+                tv = verification_result['text_verification']
+                report_lines.append(f"\n📝 TEXT VERIFICATION:")
+                report_lines.append(f"   Status: {tv.get('authenticity', 'UNKNOWN')}")
+                report_lines.append(f"   Confidence: {tv.get('confidence', 0)}%")
+                report_lines.append(f"   Details: {tv.get('explanation', 'N/A')}")
+            
+            if 'image_verification' in verification_result:
+                iv = verification_result['image_verification']
+                report_lines.append(f"\n🖼️ IMAGE VERIFICATION:")
+                report_lines.append(f"   Status: {iv.get('authenticity', 'UNKNOWN')}")
+                report_lines.append(f"   Confidence: {iv.get('confidence', 0)}%")
+                report_lines.append(f"   Details: {iv.get('explanation', 'N/A')}")
+            
+            # Recommendations
+            recommendations = self.get_recommendations(verification_result)
+            if recommendations:
+                report_lines.append("\n" + "-" * 60)
+                report_lines.append("RECOMMENDATIONS")
+                report_lines.append("-" * 60)
+                for rec in recommendations:
+                    report_lines.append(f"  {rec}")
+            
+            report_lines.append("\n" + "=" * 60)
+            
+            return "\n".join(report_lines)
         
         except Exception as e:
             print(f"Report generation error: {e}")
-            return f"Error generating report: {str(e)}"
-    
-    def generate_incident_description(
-        self, 
-        event_type: str, 
-        location: str, 
-        keywords: list
-    ) -> str:
-        """Generate natural language incident description"""
-        try:
-            location_str = f" in {location}" if location != "Unknown" else ""
-            
-            # Create description from keywords
-            keyword_desc = "involving " + ", ".join(keywords[:5])
-            
-            # Get template
-            template = self.templates.get(event_type, self.templates['other'])
-            
-            # Fill template
-            description = template.format(
-                location=location_str,
-                description=keyword_desc.capitalize()
-            )
-            
-            return description
-        except Exception as e:
-            print(f"Description generation error: {e}")
-            return "An incident was reported. Details are being verified."
-    
-    def generate_summary(self, verification_result: Dict, text_info: Dict = None) -> str:
-        """Generate brief summary for display"""
-        try:
-            summary = f"**Authenticity:** {verification_result['authenticity']}\n"
-            summary += f"**Confidence:** {verification_result['confidence']}%\n\n"
-            summary += f"{verification_result['explanation']}\n"
-            
-            if text_info:
-                location = text_info.get('location', 'Unknown')
-                event_type = text_info.get('event_type', 'other')
-                
-                if location != 'Unknown':
-                    summary += f"\n**Location:** {location}\n"
-                summary += f"**Event Type:** {event_type.replace('_', ' ').title()}\n"
-            
-            return summary
-        except Exception as e:
-            print(f"Summary generation error: {e}")
-            return "Unable to generate summary"
+            return "Unable to generate detailed report."
