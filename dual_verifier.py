@@ -1,26 +1,30 @@
 """
-Dual Verification Module - STRICT VERSION
-Properly verifies text and images against retrieved web evidence
-Uses strict thresholds to avoid false positives
+Dual Verification Module - AI-POWERED VERSION
+Uses Google Gemini AI to properly READ and VERIFY content
 """
 
 from PIL import Image
 import numpy as np
 from typing import List, Dict
-import re
+from ai_content_analyzer import AIContentAnalyzer
 
 class DualVerifier:
     def __init__(self):
-        """Initialize verifier with strict thresholds"""
-        print("✓ Dual Verifier initialized (Strict Mode)")
+        """Initialize verifier with AI analyzer"""
+        print("✓ Dual Verifier initializing with AI...")
         
-        # STRICT thresholds - harder to pass
-        self.high_similarity_threshold = 0.75  # Must be 75%+ similar
-        self.min_similar_images = 3  # Need at least 3 matching images
-        self.min_evidence_count = 5  # Need at least 5 images for "REAL"
+        # Initialize AI analyzer
+        self.ai_analyzer = AIContentAnalyzer()
+        
+        # Thresholds
+        self.high_similarity_threshold = 0.75
+        self.min_similar_images = 3
+        self.min_evidence_count = 5
         
         self.high_confidence_threshold = 75
         self.medium_confidence_threshold = 55
+        
+        print("✓ AI-Powered Dual Verifier ready!")
     
     def verify_text_and_image(
         self, 
@@ -30,41 +34,158 @@ class DualVerifier:
         image_based_images: List[Dict]
     ) -> Dict:
         """
-        STRICT verification of both text and image together
+        AI-POWERED verification of text and image
+        Properly reads and understands both before verifying
         """
         try:
-            # Verify text - STRICT
-            text_result = self._strict_verify_text(text, text_based_images)
+            print("🤖 AI analyzing text content...")
+            text_analysis = self.ai_analyzer.analyze_text_incident(text)
             
-            # Verify image - STRICT
-            image_result = self._strict_verify_image(user_image, image_based_images)
+            print("🤖 AI analyzing image content...")
+            image_analysis = self.ai_analyzer.analyze_image_content(user_image)
             
-            # Cross-verify consistency
-            consistency_score = self._check_consistency(
-                text, user_image, text_result, image_result, 
-                text_based_images, image_based_images
+            print("🤖 AI comparing text and image...")
+            comparison = self.ai_analyzer.compare_text_and_image(
+                text, user_image, text_analysis, image_analysis
             )
             
-            # Determine final verdict with strict rules
-            verdict = self._determine_strict_verdict(
-                text_result, image_result, consistency_score
+            print("🤖 AI verifying with web evidence...")
+            ai_verification = self.ai_analyzer.verify_with_web_evidence(
+                text, user_image, text_based_images, image_based_images
             )
             
-            return {
-                'verdict': verdict['type'],
-                'main_message': verdict['message'],
-                'confidence': verdict['confidence'],
-                'explanation': verdict['explanation'],
-                'text_verification': text_result,
-                'image_verification': image_result,
-                'consistency_score': consistency_score
-            }
+            # Build result
+            result = self._build_ai_result(
+                text_analysis, image_analysis, comparison,
+                ai_verification, text_based_images, image_based_images
+            )
+            
+            return result
         
         except Exception as e:
-            print(f"Dual verification error: {e}")
-            return self._get_error_result()
+            print(f"AI verification error: {e}")
+            # Fallback to basic verification
+            return self._fallback_verification(
+                text, user_image, text_based_images, image_based_images
+            )
     
-    def verify_text_only(self, text: str, retrieved_images: List[Dict]) -> Dict:
+    def _build_ai_result(
+        self, text_analysis, image_analysis, comparison,
+        ai_verification, text_images, image_images
+    ) -> Dict:
+        """Build final result from AI analysis"""
+        
+        # Extract AI insights
+        same_incident = comparison.get('same_incident', False)
+        match_score = comparison.get('match_score', 50)
+        
+        verdict_map = {
+            'REAL': 'MATCH_AND_REAL',
+            'LIKELY_REAL': 'MATCH_AND_REAL',
+            'UNCERTAIN': 'BOTH_REAL_DIFFERENT_INCIDENTS' if same_incident else 'PARTIAL_FAKE',
+            'LIKELY_FAKE': 'PARTIAL_FAKE',
+            'FAKE': 'BOTH_FAKE'
+        }
+        
+        ai_verdict = ai_verification.get('verdict', 'UNCERTAIN')
+        confidence = ai_verification.get('confidence', 50)
+        
+        # Map to our verdict types
+        if same_incident and match_score >= 70 and ai_verdict in ['REAL', 'LIKELY_REAL']:
+            verdict_type = 'MATCH_AND_REAL'
+            message = '✅ TEXT and IMAGE MATCH - Both Verified as REAL'
+        elif same_incident and ai_verdict == 'UNCERTAIN':
+            verdict_type = 'BOTH_REAL_DIFFERENT_INCIDENTS'
+            message = '⚠️ MISMATCH - Text and Image May Describe Different Incidents'
+        elif not same_incident:
+            verdict_type = 'BOTH_REAL_DIFFERENT_INCIDENTS'
+            message = '⚠️ MISMATCH DETECTED - Text and Image Describe Different Things'
+        elif ai_verdict in ['LIKELY_FAKE', 'FAKE']:
+            verdict_type = 'BOTH_FAKE'
+            message = '❌ LIKELY FABRICATED - Cannot Verify'
+        else:
+            verdict_type = 'PARTIAL_FAKE'
+            message = '⚠️ SUSPICIOUS - Partial Verification Only'
+        
+        # Build detailed explanation
+        explanation = f"""🤖 AI ANALYSIS RESULTS:
+
+📝 TEXT ANALYSIS:
+- Incident Type: {text_analysis.get('incident_type', 'unknown')}
+- Location: {text_analysis.get('location', 'unknown')}
+- Details: {text_analysis.get('key_details', 'N/A')[:100]}
+
+🖼️ IMAGE ANALYSIS:
+- Scene Type: {image_analysis.get('scene_type', 'unknown')}
+- Location Type: {image_analysis.get('location_type', 'unknown')}
+- Description: {image_analysis.get('description', 'N/A')[:100]}
+
+🔍 COMPARISON:
+{comparison.get('reasoning', 'Unable to compare')}
+
+🌐 WEB VERIFICATION:
+{ai_verification.get('reasoning', 'Limited evidence found')}
+
+💡 RECOMMENDATION:
+{ai_verification.get('recommendation', 'Verify from additional sources')}
+"""
+        
+        return {
+            'verdict': verdict_type,
+            'main_message': message,
+            'confidence': confidence,
+            'explanation': explanation,
+            'text_verification': {
+                'is_real': ai_verdict in ['REAL', 'LIKELY_REAL'],
+                'authenticity': ai_verdict,
+                'confidence': confidence,
+                'explanation': text_analysis.get('key_details', '')[:200]
+            },
+            'image_verification': {
+                'is_real': ai_verdict in ['REAL', 'LIKELY_REAL'],
+                'authenticity': ai_verdict,
+                'confidence': confidence,
+                'explanation': image_analysis.get('description', '')[:200]
+            },
+            'consistency_score': match_score / 100.0
+        }
+    
+    def _fallback_verification(self, text, image, text_imgs, img_imgs):
+        """Fallback when AI is not available"""
+        total = len(text_imgs) + len(img_imgs)
+        
+        if total >= 8:
+            verdict = 'MATCH_AND_REAL'
+            message = '✅ Both Verified (Basic Mode)'
+            confidence = 65
+        elif total >= 4:
+            verdict = 'PARTIAL_FAKE'
+            message = '⚠️ Limited Evidence'
+            confidence = 45
+        else:
+            verdict = 'BOTH_FAKE'
+            message = '❌ Insufficient Evidence'
+            confidence = 25
+        
+        return {
+            'verdict': verdict,
+            'main_message': message,
+            'confidence': confidence,
+            'explanation': f'Found {total} images. AI analysis unavailable - using basic verification.',
+            'text_verification': {
+                'is_real': total >= 5,
+                'authenticity': 'UNCERTAIN',
+                'confidence': confidence,
+                'explanation': 'Basic verification only'
+            },
+            'image_verification': {
+                'is_real': total >= 5,
+                'authenticity': 'UNCERTAIN',
+                'confidence': confidence,
+                'explanation': 'Basic verification only'
+            },
+            'consistency_score': 0.5
+        }
         """STRICT text-only verification"""
         try:
             result = self._strict_verify_text(text, retrieved_images)
