@@ -19,26 +19,11 @@ class ImageRetriever:
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
         }
         
-        # Try to load image analysis model
-        self.feature_extractor = self._load_image_analyzer()
-        
-        print("✓ Enhanced Image Retriever initialized with AI")
-    
-    def _load_image_analyzer(self):
-        """Load lightweight image feature extractor"""
-        try:
-            # Try to use a lightweight model if available
-            print("Attempting to load image analysis model...")
-            # For now, we'll use basic image features
-            # Can be enhanced with transformers if needed
-            return None
-        except Exception as e:
-            print(f"Image analyzer not available: {e}")
-            return None
+        print("✓ Enhanced Image Retriever initialized")
     
     def image_to_text(self, image: Image.Image) -> str:
         """
-        Convert image to descriptive text using AI analysis
+        Convert image to descriptive text using visual analysis
         Returns detailed description of image content
         """
         try:
@@ -75,15 +60,10 @@ class ImageRetriever:
             brightness = np.mean(img_array)
             contrast = np.std(img_array)
             
-            # Detect edges (simple method)
-            gray = np.mean(img_array, axis=2)
-            edges = np.abs(np.diff(gray, axis=0)).sum() + np.abs(np.diff(gray, axis=1)).sum()
-            
             features = {
                 'avg_color': avg_color,
                 'brightness': brightness,
                 'contrast': contrast,
-                'edge_density': edges,
                 'is_dark': is_dark,
                 'has_red_tones': has_red,
                 'has_blue_tones': has_blue,
@@ -129,75 +109,6 @@ class ImageRetriever:
         
         except:
             return "incident scene"
-    
-    def retrieve_similar_images(
-        self, 
-        reference_image: Image.Image, 
-        text_context: Optional[str] = None,
-        max_images: int = 15
-    ) -> List[Dict]:
-        """
-        Retrieve highly similar images using AI-enhanced matching
-        
-        Args:
-            reference_image: User's uploaded image
-            text_context: Optional text description for better matching
-            max_images: Maximum number of images to retrieve
-        
-        Returns:
-            List of similar images with metadata and similarity scores
-        """
-        try:
-            print("🔍 Starting AI-enhanced image retrieval...")
-            
-            # Step 1: Convert image to descriptive text
-            image_description = self.image_to_text(reference_image)
-            
-            # Step 2: Combine with text context if available
-            if text_context:
-                search_query = f"{text_context} {image_description}"
-            else:
-                search_query = image_description
-            
-            print(f"📝 Search query: {search_query}")
-            
-            # Step 3: Retrieve candidate images
-            candidate_images = self._search_multiple_sources(search_query, max_images * 2)
-            
-            if not candidate_images:
-                print("⚠️ No candidate images found")
-                return []
-            
-            # Step 4: Calculate similarity scores and rank
-            scored_images = []
-            for img_data in candidate_images:
-                try:
-                    similarity_score = self._calculate_deep_similarity(
-                        reference_image, 
-                        img_data['image']
-                    )
-                    
-                    img_data['similarity_score'] = similarity_score
-                    img_data['match_percentage'] = int(similarity_score * 100)
-                    scored_images.append(img_data)
-                except Exception as e:
-                    continue
-            
-            # Step 5: Sort by similarity and return top matches
-            scored_images.sort(key=lambda x: x['similarity_score'], reverse=True)
-            top_matches = scored_images[:max_images]
-            
-            print(f"✓ Retrieved {len(top_matches)} highly similar images")
-            
-            # Add original incident information
-            for img in top_matches:
-                img['original_description'] = self._extract_incident_details(img)
-            
-            return top_matches
-        
-        except Exception as e:
-            print(f"Similar image retrieval error: {e}")
-            return []
     
     def retrieve_similar_images(
         self, 
@@ -268,6 +179,8 @@ class ImageRetriever:
             print(f"Similar image retrieval error: {e}")
             # Fallback to regular retrieval
             return self.retrieve_images(text_context or "incident", max_images)
+    
+    def retrieve_images(self, query: str, max_images: int = 10) -> List[Dict]:
         """
         Standard image retrieval based on text query
         """
@@ -436,7 +349,7 @@ class ImageRetriever:
             if name and len(name) > 5:
                 description_parts.append(name)
             
-            if source and source != 'DuckDuckGo' and source != 'Bing':
+            if source and source not in ['DuckDuckGo Search', 'Bing Search']:
                 description_parts.append(f"Source: {source}")
             
             if description_parts:
