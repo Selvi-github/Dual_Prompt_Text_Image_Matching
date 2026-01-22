@@ -285,9 +285,11 @@ def main():
             elif not has_text and has_image:
                 st.info("🔄 Mode: IMAGE Only Verification (AI-Enhanced)")
                 
+                # Create retriever instance
+                retriever = ImageRetriever()
+                
                 # AI-powered image analysis
                 with st.spinner("🤖 Analyzing image with AI..."):
-                    retriever = ImageRetriever()
                     image_description = retriever.image_to_text(user_image)
                 
                 st.success(f"✓ Image analyzed: {image_description}")
@@ -296,6 +298,7 @@ def main():
                 with st.spinner("🔍 Finding similar images using AI..."):
                     retrieved_images = retriever.retrieve_similar_images(
                         user_image,
+                        text_context=None,
                         max_images=max_images
                     )
                 
